@@ -1,104 +1,118 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
-from __future__ import print_function
+from configparser import ConfigParser
 import sys
-import getpass
 import subprocess
-import os
-from os import path
+import getpass
+import re
+
+restart_network_command = {
+        "linux": ["systemctl", "restart", "NetworkManager"],
+        "darwin": ["dscacheutil", "-flushcache"],
+        "win32": ["ipconfig", "/flushdns"]
+    }
+
+
+def restart_network():
+    if restart_network_command[sys.platform]:
+        subprocess.check_call(restart_network_command[sys.platform])
+    else:
+        # Intention isn't to exit, as it still works, but just requires some
+        # intervention on the user's part.
+        message = '"Please contribute DNS cache flush command on GitHub."'
+        subprocess.check_call(['echo', message])
+
+
+class Sites:
+
+    config = ConfigParser()
+
+    def __init__(self, sites_file: str):
+        self.config.read(sites_file)
+        self.modes = self.config.sections()
+
+    def get(self, mode: str) -> [str]:
+        if mode not in self.modes:
+            KeyError()
+        return self.config.get(mode, 'sites').strip().split(',')
+
+    def get_for_hosts(self, mode: str) -> [str]:
+        hosts = []
+        sites = self.get(mode)
+        for site in set(sites):
+            hosts.append("127.0.0.1\t" + site)
+            hosts.append("127.0.0.1\twww." + site)
+        return hosts
+
+
+class Hosts:
+
+    # Start token indicating start of lines get-shit-done is adding
+    start_token = "## start gsd"
+    # End token indicating end of lines get-shit-done is adding
+    end_token = "## end gsd"
+
+    def __init__(self):
+        # Host file that the network manager reads to block sites
+        if "win32" in sys.platform:
+            self.file = '/Windows/System32/drivers/etc/hosts'
+        else:
+            self.file = '/etc/hosts'
+
+    def update(self, sites: [str], mode: str = None):
+        mode_start_token = '%s %s' % (self.start_token, mode)
+        with open(self.file, 'r+') as file:
+            content = file.read()
+            if mode_start_token in content and self.end_token in content:
+                exit_error(mode + " mode already set")
+            else:
+                new_hosts: [str] = [self._remove(content)]
+                print(new_hosts)
+                if mode:
+                    new_hosts.append(mode_start_token)
+                    new_hosts.extend(sites)
+                    new_hosts.append(self.end_token)
+                file.seek(0)
+                file.write('\n'.join(new_hosts))
+                file.truncate()
+
+    def _remove(self, file_content: str):
+        return re.sub(f'(\n){self.start_token}((.|\n)*){self.end_token}(.*|\n)', '', file_content)
+
+    def clean(self):
+        self.update([], mode=None)
+
+
+def check_args():
+    if len(sys.argv) != 2:
+        exit_error('usage: ' + sys.argv[0] + ' [%s]' % modes_prompt)
+
 
 def exit_error(error):
     print(error, file=sys.stderr)
     exit(1)
 
-ini_local = path.expanduser(path.join("~", ".config/get-shit-done.ini"))
-ini_global = './sites.ini'
 
-if "linux" in sys.platform:
-    restart_network_command = ["/etc/init.d/networking", "restart"]
-elif "darwin" in sys.platform:
-    restart_network_command = ["dscacheutil", "-flushcache"]
-elif "win32" in sys.platform:
-    restart_network_command = ["ipconfig", "/flushdns"]
-else:
-    # Intention isn't to exit, as it still works, but just requires some
-    # intervention on the user's part.
-    message = '"Please contribute DNS cache flush command on GitHub."'
-    restart_network_command = ['echo', message]
-
-def ini_to_array(ini_file):
-    # this enables the ini file to be written like
-    # sites = google.com, facebook.com, quora.com ....
-    if os.path.exists(ini_file):
-        f = open(ini_file)
-        sites = []
-        for line in f:
-            key, value = [each.strip() for each in line.partition("=")[::2]]
-            if key == "sites":
-                for item in [each.strip() for each in value.split(",")]:
-                    sites.append(item)
-        return sites
-    else:
-      return []
-
-hosts_file = '/etc/hosts'
-
-if "win32" in sys.platform:
-    hosts_file = '/Windows/System32/drivers/etc/hosts'
-
-start_token = '## start-gsd'
-end_token = '## end-gsd'
-site_list = ini_to_array(ini_global) + ini_to_array(ini_local)
-
-def rehash():
-    subprocess.check_call(restart_network_command)
-
-def work():
-    hFile = open(hosts_file, 'a+')
-    contents = hFile.read()
-
-    if start_token in contents and end_token in contents:
-        exit_error("Work mode already set.")
-
-    print(start_token, file=hFile)
-
-    # remove duplicates by converting list to a set
-    for site in set(site_list):
-        print("127.0.0.1\t" + site, file=hFile)
-        print("127.0.0.1\twww." + site, file=hFile)
-
-    print(end_token, file=hFile)
-
-    rehash()
-
-def play():
-    hosts_file_handle = open(hosts_file, "r+")
-    lines = hosts_file_handle.readlines()
-
-    startIndex = -1
-
-    for index, line in enumerate(lines):
-        if line.strip() == start_token:
-            startIndex = index
-
-    if startIndex > -1:
-        lines = lines[0:startIndex]
-
-        hosts_file_handle.seek(0)
-        hosts_file_handle.write(''.join(lines))
-        hosts_file_handle.truncate()
-
-        rehash()
-
-def main():
+def is_root_user():
     if getpass.getuser() != 'root' and 'win32' not in sys.platform:
         exit_error('Please run script as root.')
-    if len(sys.argv) != 2:
-        exit_error('usage: ' + sys.argv[0] + ' [work|play]')
-    try:
-        {"work": work, "play": play}[sys.argv[1]]()
-    except KeyError:
-        exit_error('usage: ' + sys.argv[0] + ' [work|play]')	
+
 
 if __name__ == "__main__":
-    main()
+    sites = Sites('./sites.ini')
+    modes = sites.modes + ['play']
+    modes_prompt = '|'.join(modes)
+    hosts = Hosts()
+
+    is_root_user()
+    try:
+        check_args()
+        mode = sys.argv[1]
+        if mode == 'play':
+            hosts.clean()
+            restart_network()
+        else:
+            hosts.update(sites.get_for_hosts(mode), mode)
+            restart_network()
+    except KeyError:
+        exit_error('usage: ' + sys.argv[0] + ' [%s]' % modes_prompt)
