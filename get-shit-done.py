@@ -35,7 +35,7 @@ class Sites:
     def get(self, mode: str) -> List[str]:
         if mode not in self.modes:
             KeyError()
-        return self.config.get(mode, 'sites').strip().split(',')
+        return [site.strip() for site in self.config.get(mode, 'sites').split(',')]
 
     def get_for_hosts(self, mode: str) -> List[str]:
         hosts = []
