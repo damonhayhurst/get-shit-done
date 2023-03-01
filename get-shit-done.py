@@ -5,6 +5,7 @@ import sys
 import subprocess
 import getpass
 import re
+from typing import List
 
 restart_network_command = {
         "linux": ["systemctl", "restart", "NetworkManager"],
@@ -31,19 +32,25 @@ class Sites:
         self.config.read(sites_file)
         self.modes = self.config.sections()
 
-    def get(self, mode: str) -> [str]:
+    def get(self, mode: str) -> List[str]:
         if mode not in self.modes:
             KeyError()
         return self.config.get(mode, 'sites').strip().split(',')
 
-    def get_for_hosts(self, mode: str) -> [str]:
+    def get_for_hosts(self, mode: str) -> List[str]:
         hosts = []
         sites = self.get(mode)
         for site in set(sites):
+            site = site.strip()
             hosts.append("127.0.0.1\t" + site)
             hosts.append("127.0.0.1\twww." + site)
         return hosts
 
+    def __repr__(self) -> str:
+        sites = {}
+        for mode in self.modes:
+            sites[mode] = self.config.items(mode)
+        return str(sites)
 
 class Hosts:
 
@@ -59,15 +66,14 @@ class Hosts:
         else:
             self.file = '/etc/hosts'
 
-    def update(self, sites: [str], mode: str = None):
+    def update(self, sites: List[str], mode: str = None):
         mode_start_token = '%s %s' % (self.start_token, mode)
         with open(self.file, 'r+') as file:
             content = file.read()
             if mode_start_token in content and self.end_token in content:
                 exit_error(mode + " mode already set")
             else:
-                new_hosts: [str] = [self._remove(content)]
-                print(new_hosts)
+                new_hosts: List[str] = [self._remove(content)]
                 if mode:
                     new_hosts.append(mode_start_token)
                     new_hosts.extend(sites)
