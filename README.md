@@ -9,6 +9,8 @@ Execute it as root because it modifies your hosts file and restarts your network
 ## To get-shit-done
 
     $ sudo get-shit-done work
+    
+    $ sudo get-shit-done [mode]
 
 ## To no longer get-shit-done
 
