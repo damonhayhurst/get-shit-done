@@ -6,9 +6,11 @@ After cloning this repository, put it in your $PATH and ensure it is executable.
 
 Execute it as root because it modifies your hosts file and restarts your network daemon.
 
-## To get-shit-done
+## To get-shit-done 
 
     $ sudo get-shit-done work
+    
+You can use the headings in the sites.ini file to create custom modes
     
     $ sudo get-shit-done [mode]
 
